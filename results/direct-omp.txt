@@ -1,15 +1,15 @@
 k49_norm_10NN  backend=openmp threads=8 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0.5 leaf m=16
 
 phase times, median of 5 runs [s]  (257 row blocks)
-  P:   beta 0.02666  symmetrize 0.00889
-  attr:      0.00060
-  quadtree:  keys 0.00009  sort 0.00266  build 0.00055  (7483 nodes, 10 levels)
-  centers of mass: 0.00011
-  walk:      0.02416
+  P:   beta 0.02783  symmetrize 0.00971
+  attr:      0.00066
+  quadtree:  keys 0.00010  sort 0.00276  build 0.00054  (7483 nodes, 10 levels)
+  centers of mass: 0.00010
+  walk:      0.02466
   assemble:  0.00012
-  total:     0.06544   (gradient without P: 0.02989)
+  total:     0.06582   (gradient without P: 0.02828)
 
 sum(P) = 1.000000000000 (should be 1),  Z = 73753122.78
 vs reference:  max|beta-ref| = 1.221e-04   Fattr err = 1.288e-05   Frep err = 9.119e-03   Z rel err = 5.024e-03
-direct O(n^2) repulsion (median of 5): 0.28214 s   Barnes-Hut (build + cm + walk): 0.02757 s   speedup 10.2x
+direct O(n^2) repulsion (median of 5): 0.29897 s   Barnes-Hut (build + cm + walk): 0.02816 s   speedup 10.6x
 Barnes-Hut vs exact:  Frep err = 9.204e-03   Z rel err = 5.111e-03
