@@ -1,0 +1,65 @@
+# vs reference: max|beta-ref|, max|x-ref|/max|ref| for Fattr and Frep, |Z-Zref|/Zref
+# vs out/<graph>-result-seq.mat: the same differences against the sequential result
+
+== k49_norm_10NN
+k49_norm_10NN  backend=seq threads=1 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0.5 leaf m=16
+sum(P) = 1.000000000000 (should be 1),  Z = 73753122.78
+vs reference:  max|beta-ref| = 1.221e-04   Fattr err = 1.288e-05   Frep err = 9.119e-03   Z rel err = 5.024e-03
+wrote out/k49_norm_10NN-result-seq.mat
+k49_norm_10NN  backend=pthreads threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 1.221e-04   Fattr err = 1.288e-05   Frep err = 9.119e-03   Z rel err = 5.024e-03
+vs out/k49_norm_10NN-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 0.00e+00  Z 0.00e+00
+k49_norm_10NN  backend=openmp threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 1.221e-04   Fattr err = 1.288e-05   Frep err = 9.119e-03   Z rel err = 5.024e-03
+vs out/k49_norm_10NN-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 0.00e+00  Z 0.00e+00
+k49_norm_10NN  backend=cilk threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 1.221e-04   Fattr err = 1.288e-05   Frep err = 9.119e-03   Z rel err = 5.024e-03
+vs out/k49_norm_10NN-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 6.14e-16  Z 0.00e+00
+
+== com-Amazon
+com-Amazon  backend=seq threads=1 | n=334863 nnz=1851744 maxdeg=549 | u=10 theta=0.5 leaf m=16
+sum(P) = 0.999999999999 (should be 1),  Z = 7455225600
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.441e-15   Frep err = 8.130e-03   Z rel err = 4.846e-03
+wrote out/com-Amazon-result-seq.mat
+com-Amazon  backend=pthreads threads=4 | n=334863 nnz=1851744 maxdeg=549 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.441e-15   Frep err = 8.130e-03   Z rel err = 4.846e-03
+vs out/com-Amazon-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 0.00e+00  Z 0.00e+00
+com-Amazon  backend=openmp threads=4 | n=334863 nnz=1851744 maxdeg=549 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.441e-15   Frep err = 8.130e-03   Z rel err = 4.846e-03
+vs out/com-Amazon-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 0.00e+00  Z 0.00e+00
+com-Amazon  backend=cilk threads=4 | n=334863 nnz=1851744 maxdeg=549 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.441e-15   Frep err = 8.130e-03   Z rel err = 4.846e-03
+vs out/com-Amazon-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 1.23e-15  Z 0.00e+00
+
+== coPapersDBLP
+coPapersDBLP  backend=seq threads=1 | n=540486 nnz=30491458 maxdeg=3299 | u=10 theta=0.5 leaf m=16
+sum(P) = 0.999999999998 (should be 1),  Z = 3.736074865e+10
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.923e-15   Frep err = 5.583e-03   Z rel err = 3.628e-03
+wrote out/coPapersDBLP-result-seq.mat
+coPapersDBLP  backend=pthreads threads=4 | n=540486 nnz=30491458 maxdeg=3299 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.923e-15   Frep err = 5.583e-03   Z rel err = 3.628e-03
+vs out/coPapersDBLP-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 0.00e+00  Z 0.00e+00
+coPapersDBLP  backend=openmp threads=4 | n=540486 nnz=30491458 maxdeg=3299 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.923e-15   Frep err = 5.583e-03   Z rel err = 3.628e-03
+vs out/coPapersDBLP-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 0.00e+00  Z 0.00e+00
+coPapersDBLP  backend=cilk threads=4 | n=540486 nnz=30491458 maxdeg=3299 | u=10 theta=0.5 leaf m=16
+vs reference:  max|beta-ref| = 0.000e+00   Fattr err = 3.923e-15   Frep err = 5.583e-03   Z rel err = 3.628e-03
+vs out/coPapersDBLP-result-seq.mat:  beta 0.00e+00  Fattr 0.00e+00  Frep 1.03e-15  Z 2.04e-16
+
+== theta = 0 must give the exact sum (k49, all versions, two leaf sizes)
+k49_norm_10NN  backend=seq threads=1 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=1
+Barnes-Hut vs exact:  Frep err = 2.359e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=pthreads threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=1
+Barnes-Hut vs exact:  Frep err = 2.359e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=openmp threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=1
+Barnes-Hut vs exact:  Frep err = 2.359e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=cilk threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=1
+Barnes-Hut vs exact:  Frep err = 2.113e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=seq threads=1 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=16
+Barnes-Hut vs exact:  Frep err = 2.359e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=pthreads threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=16
+Barnes-Hut vs exact:  Frep err = 2.359e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=openmp threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=16
+Barnes-Hut vs exact:  Frep err = 2.359e-14   Z rel err = 1.809e-15
+k49_norm_10NN  backend=cilk threads=4 | n=38547 nnz=618158 maxdeg=551 | u=10 theta=0 leaf m=16
+Barnes-Hut vs exact:  Frep err = 2.113e-14   Z rel err = 1.809e-15

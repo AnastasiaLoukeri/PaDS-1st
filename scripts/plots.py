@@ -5,7 +5,7 @@
 
 Reads   results/timings.csv        (bench.sh: one row per graph x backend x threads, medians of 5 runs)
         results/leafsweep.csv      (tsne_seq -m ... -csv)
-        results/crossover-omp.txt  (tsne_omp -crossover)
+        results/crossover-omp.txt  (tsne_omp -crossover), and results/crossover-seq.txt if present
         results/direct-omp.txt     (tsne_omp -direct)
 Writes  results/figures/*.pdf and *.png, and results/speedups.csv, results/unit_costs.csv
 
@@ -44,6 +44,17 @@ def save(fig, name):
         fig.savefig(os.path.join(OUT, f"{name}.{ext}"), dpi=200)
     plt.close(fig)
     print("wrote", os.path.join(OUT, name + ".pdf"))
+
+
+def ht_region(ax, ps):
+    """grey band where threads > physical cores: 2 hyperthreads share a core, ideal speedup no longer applies"""
+    if max(ps) > args.cores:
+        ax.axvspan(args.cores, max(ps) * 1.15, color="0.93", zorder=0)
+        ax.text(args.cores * 1.06, 1.05, "hyper-\nthreads", fontsize=6, color="0.4", va="bottom")
+
+
+def kfmt(v):
+    return f"{v / 1e6:.1f}M" if v >= 1e6 else f"{v / 1e3:.0f}k"
 
 
 def pow2_axis(ax, ps):
@@ -97,11 +108,11 @@ print("wrote", os.path.join(RES, "unit_costs.csv"))
 # ------------------------------------------------------------------ fig 1: total speedup, per graph, per backend
 fig, axes = plt.subplots(1, len(gs), figsize=(3.0 * len(gs) + 0.6, 2.9), sharey=True)
 for ax, g in zip(np.atleast_1d(axes), gs):
-    ax.plot(ps, ps, "--", color="lightgray", label="ideal")
+    ax.plot(ps, ps, "--", color="lightgray", label="ideal (= p)")
     for b in bks:
         t1 = row(g, b, 1)["total"]
         ax.plot(ps, [t1 / row(g, b, p)["total"] for p in ps], marker=BK[b][1], color=BK[b][0], label=b)
-    ax.axvline(args.cores, color="gray", ls=":", lw=0.8)
+    ht_region(ax, ps)
     ax.set_title(g, fontsize=9)
     ax.set_yscale("log", base=2)
     ax.set_yticks(ps)
@@ -141,12 +152,12 @@ save(fig, "fig2_phase_times_vs_p")
 b = args.backend
 fig, axes = plt.subplots(1, len(gs), figsize=(3.0 * len(gs) + 0.6, 2.9), sharey=True)
 for ax, g in zip(np.atleast_1d(axes), gs):
-    ax.plot(ps, ps, "--", color="lightgray", label="ideal")
+    ax.plot(ps, ps, "--", color="lightgray", label="ideal (= p)")
     r1 = row(g, b, 1)
     for c in cols:
         ax.plot(ps, [r1[c] / row(g, b, p)[c] for p in ps], marker="o", ms=3, lw=1.6 if c == "total" else 1,
                 color=PCOL[c], label=dict(PH).get(c, "total"))
-    ax.axvline(args.cores, color="gray", ls=":", lw=0.8)
+    ht_region(ax, ps)
     ax.set_title(f"{g} ({b})", fontsize=9)
     ax.set_yscale("log", base=2)
     ax.set_yticks([1, 2, 4, 8, 16])
@@ -170,7 +181,10 @@ for ax, xs, lab in ((axes[0], ns, "nodes n"), (axes[1], es, "edges |E|")):
     ax.plot(xs, [row(g, b, pmax)["total"] for g in gs], "k--", marker="s", ms=3, lw=1, label=f"total, p = {pmax}")
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(lab)
+    ax.set_xticks(xs)
+    ax.set_xticklabels([kfmt(v) for v in xs], fontsize=7)
+    ax.minorticks_off()
+    ax.set_xlabel(lab + "  (k49, com-Amazon, coPapersDBLP)", fontsize=8)
 axes[0].set_ylabel(f"time [s] ({b}, p = 1)")
 axes[1].legend(fontsize=6)
 save(fig, "fig4_across_graphs")
@@ -189,31 +203,42 @@ ax.set_xticks(sorted(lf.leaf_m.unique()))
 ax.set_xticklabels([str(m) for m in sorted(lf.leaf_m.unique())])
 ax.minorticks_off()
 ax.set_xlabel("leaf capacity m")
-ax.set_ylabel("tree + centers + walk, relative to the best m")
+ax.set_ylabel("tree + centers + walk\n(relative to the best m)")
 ax.legend(fontsize=6)
 save(fig, "fig5_leaf_size")
 
 # ------------------------------------------------------------------ fig 6: Barnes-Hut vs direct
 pat = re.compile(r"^\s*(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s*$")
-cr = [tuple(map(float, m.groups())) for m in map(pat.match, open(os.path.join(RES, "crossover-omp.txt"))) if m]
-cr = np.array(cr)
-n_, bh, di = cr[:, 0], cr[:, 1], cr[:, 2]
-ratio = di / bh
-x = None
-for i in range(1, len(n_)):
-    if ratio[i - 1] < 1 <= ratio[i]:
-        t = -np.log(ratio[i - 1]) / (np.log(ratio[i]) - np.log(ratio[i - 1]))
-        x = float(np.exp(np.log(n_[i - 1]) + t * (np.log(n_[i]) - np.log(n_[i - 1]))))
-        break
-fig, ax = plt.subplots(figsize=(3.6, 2.9))
-ax.loglog(n_, di, "o-", ms=4, label="direct O(n²)")
-ax.loglog(n_, bh, "s-", ms=4, label="Barnes-Hut (tree + walk)")
-if x:
-    ax.axvline(x, color="gray", ls=":", lw=0.8)
-    ax.text(x * 1.08, ax.get_ylim()[0] * 3, f"crossover ≈ {x:,.0f}", fontsize=7)
-    print(f"crossover (log-log interpolation): n ≈ {x:,.0f}")
+
+
+def crossover(fname):
+    txt = open(fname).read()
+    m = re.search(r"threads=(\d+)", txt)
+    cr = np.array([tuple(map(float, m.groups())) for m in map(pat.match, txt.splitlines()) if m])
+    n_, bh, di = cr[:, 0], cr[:, 1], cr[:, 2]
+    ratio = di / bh
+    x = None
+    for i in range(1, len(n_)):
+        if ratio[i - 1] < 1 <= ratio[i]:  # log-log interpolation between the two measured n around ratio 1
+            t = -np.log(ratio[i - 1]) / (np.log(ratio[i]) - np.log(ratio[i - 1]))
+            x = float(np.exp(np.log(n_[i - 1]) + t * (np.log(n_[i]) - np.log(n_[i - 1]))))
+            break
+    return int(m.group(1)) if m else None, n_, bh, di, x
+
+
+runs = [crossover(os.path.join(RES, f)) for f in ("crossover-omp.txt", "crossover-seq.txt")
+        if os.path.exists(os.path.join(RES, f))]
+fig, ax = plt.subplots(figsize=(3.8, 3.0))
+for k, (p, n_, bh, di, x) in enumerate(runs):
+    ls = "-" if k == 0 else "--"
+    ax.loglog(n_, di, "o" + ls, ms=3.5, color="tab:blue", label=f"direct O(n²), p = {p}")
+    ax.loglog(n_, bh, "s" + ls, ms=3.5, color="tab:orange", label=f"Barnes-Hut, p = {p}")
+    if x:
+        ax.axvline(x, color="gray", ls=":" if k == 0 else "-.", lw=0.8)
+        print(f"p = {p}: crossover (log-log interpolation between measured n) at n ~ {x:,.0f}")
+    print(f"p = {p}: at n = {int(n_[-1])}: direct {di[-1]:.4f} s, BH {bh[-1]:.4f} s, ratio {di[-1] / bh[-1]:.1f}x")
 ax.set_xlabel("n (strided sample of Y0, k49)")
 ax.set_ylabel("time [s]")
-ax.legend(fontsize=7)
+ax.set_title("vertical lines: crossover (interpolated)", fontsize=7)
+ax.legend(fontsize=6)
 save(fig, "fig6_bh_vs_direct")
-print(f"at n = {int(n_[-1])}: direct {di[-1]:.4f} s, BH {bh[-1]:.4f} s, ratio {ratio[-1]:.1f}x")

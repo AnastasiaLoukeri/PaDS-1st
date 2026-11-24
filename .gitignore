@@ -1,3 +1,5 @@
 starter/readdata
 *.o
 bin/
+results/old/
+*:Zone.Identifier

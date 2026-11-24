@@ -1,4 +1,4 @@
-// tsne.cpp -- one gradient of the t-SNE objective for a large sparse graph.
+// tsne_seq.cpp -- one gradient of the t-SNE objective for a large sparse graph.
 //
 //   1. P      : per-node perplexity bisection (beta_i), then symmetrization
 //   2. attr   : F_attr = (D - A) Y^T, a sparse x dense (n x 2) product, A_ij = p_ij/(1+d_ij^2)
@@ -8,28 +8,23 @@
 // THIS FILE: Sequential version (no threads): the reference the parallel versions are compared against.
 // (The four tsne_*.cpp files contain the same algorithm; only the "parallel runtime" block differs.)
 //
-// Usage:  tsne_seq data/<graph> [-p threads] [-m leaf] [-r reps] [-theta t] [-u u]
+// Usage:  bin/tsne_seq data/<graph> [-p threads] [-m leaf] [-r reps] [-theta t] [-u u]
 //                                     [-o outdir] [-csv file] [-direct] [-crossover] [-cmp result.mat]
 #include <matio.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <string>
-#include <thread>
-#include <vector>
-
-#include <algorithm>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <memory>
 #include <string>
+#include <thread>
 #include <type_traits>
+#include <vector>
 
 #define BACKEND_NAME "seq"
 
@@ -116,15 +111,31 @@ struct Csr {
   Buf<double> w;
 };
 
+// Part of reading the input (not timed). Besides the format change it makes sure the
+// assumptions of the algorithm hold for ANY input graph, not only the three given ones:
+//   - self-loops (w_ii) and entries with w <= 0 are not edges: they are dropped;
+//   - columns are sorted inside every row (the mirror lookup in symmetrize needs it);
+//   - W must be symmetric: entry (i,j) and entry (j,i) with the same weight. Otherwise P,
+//     and the fast path of symmetrize, would be silently wrong, so we stop with a message.
 static void to_csr(const graph_t& W, Csr& G) {
   G.n = W.n;
-  G.nnz = W.nnz;
   if (W.n >= (1LL << 31)) { fprintf(stderr, "n must be < 2^31\n"); exit(1); }
   G.rowptr.ensure(W.n + 1);
-  G.col.ensure(W.nnz);
-  G.w.ensure(W.nnz);
-  for (i64 i = 0; i <= W.n; i++) G.rowptr[i] = W.colptr[i];
-  for (i64 k = 0; k < W.nnz; k++) { G.col[k] = (int32_t)W.row[k]; G.w[k] = W.val[k]; }
+  G.col.ensure(W.nnz > 0 ? W.nnz : 1);
+  G.w.ensure(W.nnz > 0 ? W.nnz : 1);
+  i64 nz = 0, dropped = 0;
+  for (i64 i = 0; i < W.n; i++) {
+    G.rowptr[i] = nz;
+    for (i64 k = W.colptr[i]; k < W.colptr[i + 1]; k++) {
+      if (W.row[k] == i || !(W.val[k] > 0)) { dropped++; continue; }
+      G.col[nz] = (int32_t)W.row[k];
+      G.w[nz] = W.val[k];
+      nz++;
+    }
+  }
+  G.rowptr[W.n] = nz;
+  G.nnz = nz;
+  if (dropped) fprintf(stderr, "note: dropped %lld self-loops / non-positive weights\n", (long long)dropped);
   // the transposed-entry lookup needs sorted columns inside every row
   i64 fixed = 0;
   std::vector<std::pair<int32_t, double>> tmp;
@@ -138,6 +149,24 @@ static void to_csr(const graph_t& W, Csr& G) {
     fixed++;
   }
   if (fixed) fprintf(stderr, "note: sorted %lld unsorted rows\n", (long long)fixed);
+  // symmetry check: every (i,j) needs a mirror (j,i) with the same weight
+  const i64 RB = 4096;
+  std::vector<char> bad((G.n + RB - 1) / RB, 0);
+  par::for_range(G.n, RB, [&](i64 lo, i64 hi) {
+    for (i64 i = lo; i < hi; i++) {
+      for (i64 k = G.rowptr[i]; k < G.rowptr[i + 1]; k++) {
+        const i64 j = G.col[k];
+        const int32_t* b = G.col.get() + G.rowptr[j];
+        const int32_t* e = G.col.get() + G.rowptr[j + 1];
+        const int32_t* it = std::lower_bound(b, e, (int32_t)i);
+        if (it == e || *it != (int32_t)i || G.w[it - G.col.get()] != G.w[k]) { bad[lo / RB] = 1; return; }
+      }
+    }
+  });
+  if (std::find(bad.begin(), bad.end(), 1) != bad.end()) {
+    fprintf(stderr, "error: the adjacency matrix is not symmetric; t-SNE of a graph needs W = W^T\n");
+    exit(1);
+  }
 }
 
 // Work partition: consecutive row blocks of about equal cost (cost of row i ~ degree + 4),
@@ -210,7 +239,13 @@ static void row_probs(const double* w, int d, double u, double* out, double& bet
   beta_out = beta;
 }
 
-static void compute_pcond(const Csr& G, const Partition& part, double u, double* beta, double* pc) {
+// noinline: when gcc inlines this function into its caller (the sequential build, and the
+// pthreads build at p = 1, which run the loop directly instead of through the runtime), the
+// beta phase of coPapersDBLP became about 2x slower than the same code in the OpenMP/OpenCilk
+// builds at p = 1 (measured: 0.19 s vs 0.084 s). Keeping it a separate function makes the
+// p = 1 baselines of all versions run the same machine code. (Why gcc's inlined code is slower
+// was not determined.)
+__attribute__((noinline)) static void compute_pcond(const Csr& G, const Partition& part, double u, double* beta, double* pc) {
   par::chunks(part.count(), [&](i64 c) {
     std::vector<double> l;
     for (i64 i = part.b[c]; i < part.b[c + 1]; i++) {
@@ -731,11 +766,16 @@ int main(int argc, char** argv) {
   p = 1;  // the sequential version ignores -p
   par::init(p, argv);
 
+  auto exists = [](const std::string& path) {
+    FILE* t = fopen(path.c_str(), "r");
+    if (t) fclose(t);
+    return t != nullptr;
+  };
   graph_t W0;
   state_t S;
   if (read_graph(base.c_str(), &W0) || read_state(base.c_str(), &S)) return 1;
   ref_t R;
-  bool have_ref = read_ref(base.c_str(), &R) == 0;
+  bool have_ref = exists(base + "-ref.mat") && read_ref(base.c_str(), &R) == 0;
   if (S.n != W0.n) { fprintf(stderr, "sizes do not match\n"); return 1; }
   if (u < 0) u = S.u;
   if (theta < 0) theta = S.theta;
@@ -753,7 +793,8 @@ int main(int argc, char** argv) {
 
   // ------------------------------------------------ crossover: Barnes-Hut vs direct sum, as a function of n
   if (crossover) {
-    printf("\nrepulsion only (tree build + walk vs direct), first n points of a strided sample of Y0\n");
+    printf("\nrepulsion only (tree build + walk vs direct), n points sampled with a stride from Y0, median of %d runs\n",
+           reps);
     printf("%9s %12s %12s %9s %10s %10s\n", "n", "BH [s]", "direct [s]", "direct/BH", "err F", "err Z");
     std::vector<i64> sizes;
     for (i64 s = 256; s < n; s *= 2) sizes.push_back(s);
@@ -765,7 +806,7 @@ int main(int argc, char** argv) {
         i64 j = i * n / ns;
         Ysub[2 * i] = Y[2 * j]; Ysub[2 * i + 1] = Y[2 * j + 1];
       }
-      int rr = ns <= 8192 ? 5 : 1;
+      int rr = reps;  // median of reps runs for every n (the largest direct sum takes < 1 s)
       std::vector<double> tb, td;
       double Z1 = 0, Z2 = 0;
       for (int r = 0; r < rr; r++) {
@@ -833,13 +874,18 @@ int main(int argc, char** argv) {
   if (direct) {
     Buf<double> Fd;
     Fd.ensure(2 * n);
-    double Zd = 0, t0 = now_s();
-    repulsion_direct_raw(Y, n, Fd.get(), &Zd);
-    scale_inplace(Fd.get(), 2 * n, 1.0 / Zd);
-    double td = now_s() - t0;
+    double Zd = 0;
+    std::vector<double> tds;
+    for (int r = 0; r < reps; r++) {  // median of reps runs, like the Barnes-Hut times
+      double t0 = now_s();
+      repulsion_direct_raw(Y, n, Fd.get(), &Zd);
+      scale_inplace(Fd.get(), 2 * n, 1.0 / Zd);
+      tds.push_back(now_s() - t0);
+    }
+    double td = median(tds);
     double bh = med[PH_KEYS] + med[PH_SORT] + med[PH_BUILD] + med[PH_CM] + med[PH_WALK];
-    printf("direct O(n^2) repulsion: %.5f s   Barnes-Hut (build + cm + walk): %.5f s   speedup %.1fx\n", td, bh,
-           td / bh);
+    printf("direct O(n^2) repulsion (median of %d): %.5f s   Barnes-Hut (build + cm + walk): %.5f s   speedup %.1fx\n",
+           reps, td, bh, td / bh);
     printf("Barnes-Hut vs exact:  Frep err = %.3e   Z rel err = %.3e\n", rel_err(Wk.Fr.get(), Fd.get(), 2 * n),
            std::fabs(Wk.Z - Zd) / Zd);
   }
