@@ -1,0 +1,4 @@
+graph,n,nnz,attr_ns_per_nnz,walk_us_per_point,sort_ns_per_point,beta_ns_per_nnz,symm_ns_per_nnz
+k49_norm_10NN,38547,618158,3.813,3.588,70.589,258.094,69.455
+com-Amazon,334863,1851744,10.259,5.019,83.727,7.328,17.589
+coPapersDBLP,540486,30491458,4.147,5.266,145.269,6.338,6.993
