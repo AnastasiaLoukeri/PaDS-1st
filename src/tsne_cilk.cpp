@@ -5,9 +5,10 @@
 //   3. tree   : adaptive quadtree built over Morton-sorted points
 //   4. rep    : Barnes-Hut walk -> unnormalized F_rep and Z;  then  grad = 4 (F_attr - F_rep/Z)
 //
-// Parallel runtime is chosen at compile time (see par.h):  seq / pthreads / openmp / cilk.
+// THIS FILE: OpenCilk version: cilk_for with grainsize 1 over chunks (work stealing). Build with the OpenCilk clang++ and -fopencilk.
+// (The four tsne_*.cpp files contain the same algorithm; only the "parallel runtime" block differs.)
 //
-// Usage:  tsne_<backend> data/<graph> [-p threads] [-m leaf] [-r reps] [-theta t] [-u u]
+// Usage:  tsne_cilk data/<graph> [-p threads] [-m leaf] [-r reps] [-theta t] [-u u]
 //                                     [-o outdir] [-csv file] [-direct] [-crossover] [-cmp result.mat]
 #include <matio.h>
 
@@ -22,7 +23,58 @@
 #include <thread>
 #include <vector>
 
-#include "par.h"
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <cilk/cilk.h>
+#include <cilk/cilk_api.h>
+#include <unistd.h>
+
+#define BACKEND_NAME "cilk"
+
+// ---- parallel runtime: the only part of this file that differs between the four versions ----
+namespace par {
+//   par::init(p, argv)   use p threads
+//   par::chunks(nc, f)   run f(c) for c in [0,nc), chunks handed out dynamically
+//   par::for_range(n,g,f) run f(lo,hi) on consecutive blocks of at most g indices
+// The OpenCilk runtime reads CILK_NWORKERS when the process starts, and there is no public
+// call to change the worker count afterwards. So if the variable does not already say p,
+// set it and re-execute this program once (nothing has been read or allocated yet).
+inline void init(int p, char** argv) {
+  char want[16];
+  snprintf(want, sizeof want, "%d", p < 1 ? 1 : p);
+  const char* have = getenv("CILK_NWORKERS");
+  if (have && std::string(have) == want) return;
+  setenv("CILK_NWORKERS", want, 1);
+  execv("/proc/self/exe", argv);  // Linux
+  execv(argv[0], argv);           // fallback (macOS, or no /proc)
+  fprintf(stderr, "warning: cannot re-exec; run with CILK_NWORKERS=%s\n", want);
+}
+inline int nthreads() { return (int)__cilkrts_get_nworkers(); }
+
+template <class F>
+void chunks(int64_t nc, F&& f) {
+  if (nc <= 0) return;
+  if (nc == 1) { f((int64_t)0); return; }
+#pragma cilk grainsize 1
+  cilk_for(int64_t c = 0; c < nc; c++) f(c);
+}
+
+template <class F>
+void for_range(int64_t n, int64_t grain, F&& f) {
+  int64_t nc = (n + grain - 1) / grain;
+  chunks(nc, [&](int64_t c) {
+    int64_t lo = c * grain, hi = std::min(n, lo + grain);
+    f(lo, hi);
+  });
+}
+
+}  // namespace par
+// ---- end of parallel runtime ----
 extern "C" {
 #include "data.h"
 }
@@ -694,9 +746,6 @@ int main(int argc, char** argv) {
     else if (s == "-crossover") crossover = true;
     else { fprintf(stderr, "unknown option %s\n", s.c_str()); return 1; }
   }
-#ifdef BACKEND_SEQ
-  p = 1;
-#endif
   par::init(p, argv);
 
   graph_t W0;
