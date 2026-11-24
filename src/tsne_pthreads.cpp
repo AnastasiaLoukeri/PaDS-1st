@@ -103,9 +103,14 @@ template <class F>
 void chunks(int64_t nc, F&& f) {
   using namespace detail;
   if (nc <= 0) return;
-  if (nc == 1 || pool.P == 1) { for (int64_t c = 0; c < nc; c++) f(c); return; }
   using Fn = typename std::remove_reference<F>::type;
   auto tramp = [](void* ctx, int64_t c) { (*static_cast<Fn*>(ctx))(c); };
+  if (nc == 1 || pool.P == 1) {  // same out-of-line code as the workers run
+    void (*volatile fp)(void*, int64_t) = tramp;
+    void* ctx = const_cast<void*>(static_cast<const void*>(std::addressof(f)));
+    for (int64_t c = 0; c < nc; c++) fp(ctx, c);
+    return;
+  }
   pthread_mutex_lock(&pool.m);
   pool.fn = tramp;
   pool.ctx = const_cast<void*>(static_cast<const void*>(std::addressof(f)));
@@ -319,11 +324,11 @@ static void row_probs(const double* w, int d, double u, double* out, double& bet
   beta_out = beta;
 }
 
-// noinline: when gcc inlines this function into its caller (the sequential build, and the
-// pthreads build at p = 1, which run the loop directly instead of through the runtime), the
-// beta phase of coPapersDBLP became about 2x slower than the same code in the OpenMP/OpenCilk
-// builds at p = 1 (measured: 0.19 s vs 0.084 s). Keeping it a separate function makes the
-// p = 1 baselines of all versions run the same machine code. (Why gcc's inlined code is slower
+// noinline: when gcc inlined this function into its caller, the beta phase of coPapersDBLP
+// became about 2x slower than the same code in the OpenMP/OpenCilk builds at p = 1 (measured:
+// 0.19 s vs 0.085 s). Keeping it a separate function fixed the sequential build. In the pthreads
+// build the p = 1 path of par::chunks inlined the loop body again (beta 0.196 s at p = 1); there
+// it now calls the same out-of-line function as the workers. (Why gcc's inlined code is slower
 // was not determined.)
 __attribute__((noinline)) static void compute_pcond(const Csr& G, const Partition& part, double u, double* beta, double* pc) {
   par::chunks(part.count(), [&](i64 c) {
