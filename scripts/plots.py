@@ -105,6 +105,39 @@ for g in gs:
 pd.DataFrame(uc).round(3).to_csv(os.path.join(RES, "unit_costs.csv"), index=False)
 print("wrote", os.path.join(RES, "unit_costs.csv"))
 
+# ------------------------------------------------------------------ table: predict coPapersDBLP from k49 and com-Amazon
+# Each phase of the target graph is predicted from the sequential cost per unit (per nonzero or per point)
+# of each of the two smaller graphs; for the walk also with an n log2 n model. Nothing is fitted to the target.
+PM_SRC, PM_TGT = ["k49_norm_10NN", "com-Amazon"], "coPapersDBLP"
+if all(g in gs for g in PM_SRC + [PM_TGT]):
+    pm_seq = {g: d[(d.graph == g) & (d.backend == "seq")].iloc[0] for g in PM_SRC + [PM_TGT]}
+    pm_t = pm_seq[PM_TGT]
+    pm_models = [("attr", "per nnz", lambda r: r.nnz), ("walk", "per point", lambda r: r.n),
+              ("walk", "n log2 n", lambda r: r.n * np.log2(r.n)), ("sort", "per point", lambda r: r.n),
+              ("beta", "per nnz", lambda r: r.nnz), ("symm", "per nnz", lambda r: r.nnz)]
+    pm_rows = []
+    for pm_ph, pm_model, pm_unit in pm_models:
+        pm_rec = dict(phase=pm_ph, model=pm_model, measured_s=pm_t[pm_ph])
+        for g in PM_SRC:
+            pm_rec["pred_from_" + g] = pm_seq[g][pm_ph] / pm_unit(pm_seq[g]) * pm_unit(pm_t)
+        pm_rows.append(pm_rec)
+    pd.DataFrame(pm_rows).round(4).to_csv(os.path.join(RES, "prediction.csv"), index=False)
+    print("wrote", os.path.join(RES, "prediction.csv"))
+
+# ------------------------------------------------------------------ table: share of each phase, p = 1 and max p
+# share of the sum of the phase medians (P = beta + symm, tree = keys + sort + build)
+sh_d = d[d.backend == args.backend]
+sh_rows = []
+for g in gs:
+    for sh_p in (1, int(sh_d.threads.max())):
+        sh_r = sh_d[(sh_d.graph == g) & (sh_d.threads == sh_p)].iloc[0]
+        sh_parts = {"P": sh_r.beta + sh_r.symm, "attr": sh_r.attr, "tree": sh_r["keys"] + sh_r["sort"] + sh_r.build, "cm": sh_r.cm,
+                 "walk": sh_r.walk, "assemble": sh_r.assemble}
+        sh_sum = sum(sh_parts.values())
+        sh_rows.append(dict(graph=g, backend=args.backend, threads=sh_p, **{k: 100 * v / sh_sum for k, v in sh_parts.items()}))
+pd.DataFrame(sh_rows).round(1).to_csv(os.path.join(RES, "phase_shares.csv"), index=False)
+print("wrote", os.path.join(RES, "phase_shares.csv"))
+
 # ------------------------------------------------------------------ fig 1: total speedup, per graph, per backend
 fig, axes = plt.subplots(1, len(gs), figsize=(3.0 * len(gs) + 0.6, 2.9), sharey=True)
 for ax, g in zip(np.atleast_1d(axes), gs):
@@ -239,6 +272,6 @@ for k, (p, n_, bh, di, x) in enumerate(runs):
     print(f"p = {p}: at n = {int(n_[-1])}: direct {di[-1]:.4f} s, BH {bh[-1]:.4f} s, ratio {di[-1] / bh[-1]:.1f}x")
 ax.set_xlabel("n (strided sample of Y0, k49)")
 ax.set_ylabel("time [s]")
-ax.set_title("vertical lines: crossover (interpolated)", fontsize=7)
+ax.set_title("vertical lines mark the interpolated crossover", fontsize=7)
 ax.legend(fontsize=6)
 save(fig, "fig6_bh_vs_direct")

@@ -1,0 +1,7 @@
+phase,model,measured_s,pred_from_k49_norm_10NN,pred_from_com-Amazon
+attr,per nnz,0.1257,0.1224,0.3675
+walk,per point,2.8634,2.0101,2.7947
+walk,n log2 n,2.8634,2.5128,2.8999
+sort,per point,0.078,0.0405,0.0528
+beta,per nnz,0.0859,7.9103,0.2099
+symm,per nnz,0.2126,2.2882,0.6033
